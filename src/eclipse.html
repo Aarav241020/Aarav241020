@@ -2,24 +2,20 @@
 <html>
 <head>
 <meta charset="utf-8">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300&display=block" rel="stylesheet">
 <style>
   html, body { margin: 0; background: #000; }
-  #stage { position: relative; width: 1200px; height: 420px; overflow: hidden; }
+  #stage { width: 1200px; height: 420px; }
   canvas { display: block; }
-  #name {
-    position: absolute; left: 0; right: 0; bottom: 34px; text-align: center;
-    font: 300 46px 'Cormorant Garamond', serif; letter-spacing: 22px; text-indent: 22px;
-    color: #efeaff; text-shadow: 0 0 18px rgba(190, 170, 255, .45);
-  }
 </style>
 </head>
 <body>
-<div id="stage"><canvas id="c" width="1200" height="420"></canvas><div id="name">AARAV</div></div>
+<div id="stage"><canvas id="c" width="1200" height="420"></canvas></div>
 <script id="fs" type="x-shader/x-fragment">
 precision highp float;
 uniform vec2 res;
-uniform float t;            // loop phase 0..1
+uniform float u;      // progress through the sequence 0..1
+uniform float seed;   // per-frame film grain
+#define PI 3.1415927
 #define TAU 6.2831853
 
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
@@ -30,81 +26,87 @@ float noise(vec3 x){
              mix(mix(h31(i + vec3(0,0,1)), h31(i + vec3(1,0,1)), f.x), mix(h31(i + vec3(0,1,1)), h31(i + vec3(1,1,1)), f.x), f.y), f.z);
 }
 float fbm(vec3 p){ float a = .5, s = 0.; for (int i = 0; i < 5; i++){ s += a * noise(p); p = p * 2.03 + vec3(1.7, 9.2, 3.1); a *= .5; } return s; }
+float adiff(float a, float b){ return mod(a - b + PI, TAU) - PI; }
+
+// a helmet streamer: a lobe that tapers and bends with distance
+float streamer(float ang, float r, float at, float s, float bend, float w0){
+  float dth = adiff(ang, at + bend * (1. - exp(1. - r)));
+  float w = w0 / pow(r, .6) + .03;
+  return s * exp(-dth * dth / (w * w)) * pow(r, -2.) * exp(-r * .18);
+}
+float prominence(float ang, float r, float at, float h, float w){
+  float dth = adiff(ang, at) / w;
+  float top = 1. + h * (1. - dth * dth) * (.75 + .5 * noise(vec3(ang * 90., r * 60., 7.)));
+  return step(1., r) * (1. - smoothstep(top - .006, top, r)) * step(abs(dth), 1.);
+}
 
 void main(){
   vec2 frag = gl_FragCoord.xy, uv = frag / res;
-  float R = 54.;                                   // solar radius in px
-  vec2 C = vec2(res.x * .5, res.y * .6);
+  float R = 46.;
+  // the sky turns: sun, moon and stars drift slowly together across the frame
+  vec2 C = vec2(res.x * .5, res.y * .52) + vec2(44., 12.) * (u - .5);
   vec2 p = (frag - C) / R;
-  float r = length(p), aa = 1.2 / R;
+  float r = length(p), aa = 1.1 / R, ang = atan(p.y, p.x);
   vec2 dir = p / max(r, 1e-4);
-  float ph = TAU * t; vec2 tc = vec2(cos(ph), sin(ph));   // circular time => seamless loop
 
-  // sky: deep zenith, 360-degree twilight glow on the horizon (what totality really looks like)
-  vec3 col = mix(vec3(.016, .018, .05), vec3(.004, .005, .016), smoothstep(.2, 1., uv.y));
-  col += vec3(.8, .36, .14) * .9 * exp(-max(uv.y - .1, 0.) * 7.5);
-  col += vec3(.25, .14, .35) * .25 * exp(-max(uv.y - .15, 0.) * 4.);
+  // twilight sky: deep navy, a little lighter toward the horizon, lens vignette
+  vec3 col = mix(vec3(.04, .055, .1), vec3(.012, .018, .042), smoothstep(0., 1., uv.y));
+  col *= 1. - .45 * pow(length((uv - .5) * vec2(1., .55)) * 1.35, 2.2);
 
-  // stars, washed out near the corona
-  vec2 g = floor(frag / 7.); float hs = h21(g);
-  if (hs > .965) {
-    vec2 sp = (g + .2 + .6 * vec2(h21(g + 3.1), h21(g + 7.7))) * 7.;
-    float tw = .55 + .45 * sin(ph * floor(1. + hs * 40. - 38.6) * 2. + hs * 90.);
-    col += vec3(.85, .85, 1.) * smoothstep(1.3, 0., length(frag - sp)) * (hs - .965) * 28. * tw * smoothstep(1.6, 4.5, r);
+  // a few stars and one bright planet, fixed to the sky
+  vec2 sp = frag - C;
+  vec2 g = floor(sp / 34.); float hs = h21(g + 11.);
+  if (hs > .93) {
+    vec2 st = (g + .25 + .5 * vec2(h21(g + 3.1), h21(g + 7.7))) * 34.;
+    float tw = .75 + .25 * sin(u * 70. + hs * 300.);
+    col += vec3(.8, .84, 1.) * exp(-dot(sp - st, sp - st) * 1.4) * (hs - .93) * 9. * tw;
   }
+  vec2 venus = vec2(-330., 70.);
+  col += vec3(1., .97, .9) * (exp(-dot(sp - venus, sp - venus) * .9) * 1.4 + exp(-length(sp - venus) * .35) * .05);
 
-  // moon: sways just enough to expose the limb at the ends of the loop (diamond ring), lingers in totality
-  float c = tc.x;
-  vec2 d = vec2(.062 * c * pow(abs(c), 6.), .012 * tc.y);
-  vec2 q = p - d; float rq = length(q);
-  float am = atan(q.y, q.x);
-  float Rm = 1.025 * (1. + .007 * (noise(vec3(cos(am) * 14., sin(am) * 14., 0.)) - .5));   // lunar mountains -> Baily's beads
+  // moon slides across the sun: diamond ring -> totality -> diamond ring
+  float s = 2. * u - 1.;
+  vec2 d = vec2(.075 * (.35 * s + .65 * s * s * s), .012 * s);       // lingers in totality, hurries at the contacts
+  vec2 q = p - d; float rq = length(q), am = atan(q.y, q.x);
+  float Rm = 1.024 * (1. + .006 * (noise(vec3(cos(am) * 16., sin(am) * 16., 0.)) - .5));   // lunar valleys -> Baily's beads
   float moon = 1. - smoothstep(Rm - aa, Rm + aa, rq);
   float sun = 1. - smoothstep(1. - aa, 1. + aa, r);
   float exposed = sun * (1. - moon);
-  float flash = smoothstep(.022, .06, abs(d.x));
+  float flash = smoothstep(.02, .052, abs(d.x));
 
-  // corona: equatorial streamers + fine rays, evolving on a time circle
-  vec2 td = vec2(dir.x * .955 - dir.y * .296, dir.x * .296 + dir.y * .955);   // tilted axis
-  float eq = mix(.45, 1.5, pow(abs(td.x), 1.5));
-  float body = fbm(vec3(dir * 2.4 + .28 * tc, log(r) * .7));
-  float rays = fbm(vec3(dir * 11. + .18 * tc.yx, r * .12));
-  float I = (pow(r, -2.7) * (.45 + 1.1 * body) + .5 * pow(r, -1.7) * pow(rays, 2.5)) * eq;
-  I *= smoothstep(.98, 1.02, r) * (1. - .55 * flash);
-  vec3 ccol = mix(vec3(1., .96, .9), vec3(.72, .76, 1.), smoothstep(1., 3.2, r));
-  col += ccol * I * .9 * (1. - moon);
+  // corona: K + F falloff, flattened toward the tilted solar equator, a few long streamers, polar plumes
+  float th = ang - .35;
+  float I = 1.4 * pow(r, -7.) + .5 * pow(r, -2.6);
+  I *= .5 + .5 * pow(abs(cos(th)), 1.6);
+  I += 1.3 * (streamer(ang, r, .12, 1., .10, .30) + streamer(ang, r, .66, .6, -.06, .22)
+            + streamer(ang, r, 3.25, .9, -.09, .32) + streamer(ang, r, 3.78, .55, .07, .2)
+            + streamer(ang, r, 2.05, .22, .05, .16) + streamer(ang, r, 5.2, .18, -.04, .14));
+  float pole = pow(abs(sin(th)), 8.);
+  I += pole * .5 * pow(r, -3.6) * smoothstep(.45, .8, noise(vec3(dir * 30., r * .35)));
+  I *= .82 + .36 * fbm(vec3(dir * 16., r * .22 + 3.));                 // fine radial filaments
+  I *= smoothstep(.99, 1.03, r) * (1. - .65 * flash);                 // the camera stops down when the sun peeks out
+  col += mix(vec3(1., .97, .93), vec3(.86, .9, 1.), smoothstep(1., 3.5, r)) * I * .8 * (1. - moon);
 
-  // chromosphere + prominences peeking past the moon's limb
-  float pr = smoothstep(.5, .78, fbm(vec3(dir * 5. + .12 * tc, 2.)));
-  float ph_h = 1. + .11 * pow(pr, 1.3);
-  float prom = (1. - smoothstep(ph_h - .012, ph_h, r)) * step(.999, r) * pr;
-  float chrom = exp(-abs(r - 1.) * 70.) * .5;
-  col += vec3(1., .22, .32) * (prom * 2.2 + chrom) * (1. - moon);
+  // chromosphere and a few small prominences (only seen past the moon's limb)
+  float pr = prominence(ang, r, 2.6, .07, .05) + prominence(ang, r, .9, .045, .035)
+           + prominence(ang, r, 4.4, .055, .06) + prominence(ang, r, 5.75, .035, .03);
+  col += vec3(1., .2, .38) * (min(pr, 1.) * 1.3 + exp(-abs(r - 1.008) * 110.) * 1.6 * flash) * (1. - moon);
 
-  // the exposed sliver of photosphere and its bloom
-  col += vec3(1., .97, .9) * exposed * 6.;
-  vec2 b = -vec2(sign(d.x), 0.);
+  // the exposed photosphere and its bloom
+  vec2 b = -d / max(length(d), 1e-4);   // normalize() of the centred moon is NaN
   float db = length(p - b);
-  col += vec3(1., .95, .86) * flash * (.1 / (db * db + .004) + .5 * exp(-db * 2.2));
-  col += vec3(.9, .9, 1.) * flash * .006 / (abs(p.x - b.x) + .02) * exp(-abs(p.y - b.y) * .9);
-  col += vec3(1., .93, .85) * flash * .02 / (abs(p.y - b.y) + .015) * exp(-abs(p.x - b.x) * .3);
-  col += vec3(.06, .07, .12) * flash;
+  col += vec3(1., .97, .92) * (exposed * 9. + flash * (.07 / (db * db + .003) + .3 * exp(-db * 1.5)));
+  col += vec3(.06, .08, .14) * flash;
 
-  // moon face: faint earthshine
-  vec3 mcol = vec3(.014, .016, .03) * (.6 + .5 * fbm(vec3(q * 3., 5.)));
-  col = mix(col, mcol, moon);
+  col = mix(col, vec3(.004, .005, .009), moon);
 
-  // two mountain ridges, the far one hazed by atmosphere
-  float x = uv.x;
-  float r2 = .1 + .22 * fbm(vec3(x * 1.8 + 5., 1., 0.)) + .03 * fbm(vec3(x * 14., 2., 0.));
-  float r1 = .01 + .22 * fbm(vec3(x * 2.6, 0., 0.)) + .04 * fbm(vec3(x * 18., 4., 0.));
-  float px = 1. / res.y;
-  col = mix(col, vec3(.07, .045, .07), 1. - smoothstep(r2 - px, r2 + px, uv.y));
-  col = mix(col, vec3(.006, .006, .012), 1. - smoothstep(r1 - px, r1 + px, uv.y));
+  // as more photosphere returns the glare floods the frame (this is where the loop seam hides)
+  float wo = smoothstep(.03, .05, abs(d.x));
+  col += wo * (vec3(1., .97, .93) * 3. * exp(-db * .7) + vec3(.35, .45, .65));
 
-  col = 1. - exp(-col * 1.25);                        // tonemap
-  col += (h21(frag + t) - .5) / 255.;                 // dither against banding
-  gl_FragColor = vec4(pow(col, vec3(.95)), 1.);
+  col = 1. - exp(-col * 1.3);
+  col += (h21(frag * .9 + seed) - .5) * .022;            // film grain
+  gl_FragColor = vec4(col, 1.);
 }
 </script>
 <script>
@@ -115,15 +117,16 @@ void main(){
   const pr = gl.createProgram();
   gl.attachShader(pr, sh(gl.VERTEX_SHADER, 'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}'));
   gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, document.getElementById('fs').textContent));
+  gl.bindAttribLocation(pr, 0, 'a');
   gl.linkProgram(pr); gl.useProgram(pr);
   gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
   gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.uniform2f(gl.getUniformLocation(pr, 'res'), cv.width, cv.height);
-  const ut = gl.getUniformLocation(pr, 't');
-  window.renderAt = (t) => { gl.uniform1f(ut, t); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.finish(); };
-  // opened directly in a browser it just plays
-  if (!navigator.webdriver) (function loop(ms){ renderAt((ms / 8000) % 1); requestAnimationFrame(loop); })(0);
+  const uu = gl.getUniformLocation(pr, 'u'), us = gl.getUniformLocation(pr, 'seed');
+  window.renderAt = (t, seed) => { gl.uniform1f(uu, t); gl.uniform1f(us, seed); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.finish(); };
+  // opened directly in a browser it just plays (ping-pong instead of the baked crossfade)
+  if (!navigator.webdriver) (function loop(ms){ const k = (ms / 16000) % 2; renderAt(k < 1 ? k : 2 - k, ms % 997); requestAnimationFrame(loop); })(0);
 </script>
 </body>
 </html>

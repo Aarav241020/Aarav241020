@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/eclipse.webp" alt="A total solar eclipse over a mountain ridge: the corona streams and shimmers, red prominences peek past the moon, and a diamond ring flashes as the sun slips out." width="100%"/>
+  <img src="assets/eclipse.webp" alt="A total solar eclipse drifting slowly across a deep twilight sky: the pearly corona with long streamers, tiny red prominences at the limb, and the diamond ring as the sun returns." width="100%"/>
 </p>
 
 <p align="center">
