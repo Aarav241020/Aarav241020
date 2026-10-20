@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="assets/eclipse.svg" alt="An animated solar eclipse: the moon drifts across the sun, the corona blooms, and a diamond ring flashes." width="100%"/>
+  <img src="assets/eclipse.webp" alt="A total solar eclipse over a mountain ridge: the corona streams and shimmers, red prominences peek past the moon, and a diamond ring flashes as the sun slips out." width="100%"/>
+</p>
+
+<p align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=Cormorant+Garamond&size=22&duration=3200&pause=1400&color=C9B8FF&center=true&vCenter=true&width=640&lines=building+AI+that+acts%2C+not+just+talks;security+that+holds+when+poked;local+models%2C+late+nights%2C+honest+code" alt="building AI that acts, not just talks · security that holds when poked · local models, late nights, honest code"/>
 </p>
 
 <p align="center">
@@ -67,3 +71,4 @@ I like AI agents that actually *do* things, security that holds up when someone 
 </p>
 
 <p align="center"><sub>☾ &nbsp;always in orbit &nbsp;☽</sub></p>
+<p align="center"><sub>the banner is a hand-written WebGL shader (<a href="src/eclipse.html">src/eclipse.html</a>) baked to animated WebP — open the HTML to watch it live</sub></p>
